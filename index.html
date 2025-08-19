@@ -236,8 +236,7 @@
       name: "TrailTrack Rentals",
       // Replace with your hosted logo file or keep assets/logo.svg
       logoUrl: "assets/logo.svg",
-      // Stripe: easiest is a Payment Link URL you create in Stripe Dashboard (no backend needed)
-      STRIPE_PAYMENT_LINK: "", // e.g. "https://buy.stripe.com/test_xxx"
+
       // EmailJS keys (create free acct at emailjs.com)
       EMAILJS_PUBLIC_KEY: "OH-ZBMxnfp9IK2JeK",
       EMAILJS_SERVICE_ID: "service_jt9vrzm",
@@ -428,17 +427,16 @@
     window.reserve = reserve;
 
     // Stripe Payment Link redirect
-  // URL pública de tu Worker (ej.: https://trailtrack-worker.tu-subdominio.workers.dev/ )
-  const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev/";
+ 
+  const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev"; // <— tu URL
 
   async function payNow(){
     try {
-      // Construimos el mismo payload que ya usas en reserve()
       const payload = {
         vehicleId: selected.id,
         startDate: startEl.value,
         endDate: endEl.value,
-        pickup, 
+        pickup,
         dropoff,
         driverAge: parseInt(ageEl.value,10)
       };
@@ -451,17 +449,19 @@
 
       if(!res.ok){
         const t = await res.text();
-        alert("Error creando checkout: " + t);
+        alert("Checkout error: " + t);
         return;
       }
       const { url } = await res.json();
-      window.location.href = url; // Redirige a Stripe con el total exacto
+      window.location.href = url; // Stripe Checkout (total exacto)
     } catch (e) {
-      console.error(e);
-      alert("No se pudo iniciar el pago.");
+      console.error("payNow error:", e);
+      alert("No se pudo iniciar el pago:\n" + (e?.message || e));
     }
   }
   window.payNow = payNow;
+
+
 
     // EmailJS contact form
     function sendContact(e){
