@@ -428,21 +428,40 @@
     window.reserve = reserve;
 
     // Stripe Payment Link redirect
-    function payNow(){
-      if(!BRAND.STRIPE_PAYMENT_LINK){
-        alert('Add your STRIPE_PAYMENT_LINK in the CONFIG to enable checkout.');
+  // URL pública de tu Worker (ej.: https://trailtrack-worker.tu-subdominio.workers.dev/ )
+  const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev/";
+
+  async function payNow(){
+    try {
+      // Construimos el mismo payload que ya usas en reserve()
+      const payload = {
+        vehicleId: selected.id,
+        startDate: startEl.value,
+        endDate: endEl.value,
+        pickup, 
+        dropoff,
+        driverAge: parseInt(ageEl.value,10)
+      };
+
+      const res = await fetch(CHECKOUT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if(!res.ok){
+        const t = await res.text();
+        alert("Error creando checkout: " + t);
         return;
       }
-      // Optionally append query params for metadata
-      const params = new URLSearchParams({
-        vehicle: selected.name,
-        start: startEl.value,
-        end: endEl.value
-      });
-      const url = BRAND.STRIPE_PAYMENT_LINK + (BRAND.STRIPE_PAYMENT_LINK.includes('?') ? '&' : '?') + params.toString();
-      window.location.href = url;
+      const { url } = await res.json();
+      window.location.href = url; // Redirige a Stripe con el total exacto
+    } catch (e) {
+      console.error(e);
+      alert("No se pudo iniciar el pago.");
     }
-    window.payNow = payNow;
+  }
+  window.payNow = payNow;
 
     // EmailJS contact form
     function sendContact(e){
