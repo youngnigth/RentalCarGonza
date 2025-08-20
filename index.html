@@ -79,7 +79,7 @@
         <img src="assets/logo.svg" alt="TrailTrack" class="logo" style="background:none"/>
         <div>
           <div style="font-weight:800">TrailTrack Rentals</div>
-          <div class="muted">SUV‑only fleet • GPS pick‑up & return</div>
+          <div class="muted">SUV-only fleet • GPS pick-up & return</div>
         </div>
       </div>
       <div style="display:flex; gap:10px">
@@ -105,7 +105,7 @@
 
         <div class="grid2">
           <div>
-            <label for="start">Pick‑up date</label>
+            <label for="start">Pick-up date</label>
             <input id="start" type="date" />
           </div>
           <div>
@@ -128,8 +128,15 @@
           </div>
         </div>
 
+        <!-- NEW: Customer email for reservation -->
         <div style="margin-top:12px">
-          <label>Pick‑up location</label>
+          <label for="email">Your email (for confirmation)</label>
+          <input id="email" type="email" placeholder="you@example.com" required />
+          <div class="muted" style="margin-top:4px">We’ll email your reservation details here.</div>
+        </div>
+
+        <div style="margin-top:12px">
+          <label>Pick-up location</label>
           <div class="grid2">
             <button class="btn secondary small" onclick="geo('pickup')">Use my location</button>
             <input id="pickupField" type="text" readonly />
@@ -142,12 +149,12 @@
             <button class="btn secondary small" onclick="geo('dropoff')">Use my location</button>
             <input id="dropoffField" type="text" readonly />
           </div>
-          <div class="muted" style="margin-top:6px">Click on the map to set locations. Toggle between Set Pick‑up / Set Return on the map.</div>
+          <div class="muted" style="margin-top:6px">Click on the map to set locations. Toggle between Set Pick-up / Set Return on the map.</div>
         </div>
 
         <div class="map-wrap" style="margin-top:12px">
           <div class="map-ctrl">
-            <button id="modePickup" class="btn secondary small" onclick="setMode('pickup')">Set Pick‑up</button>
+            <button id="modePickup" class="btn secondary small" onclick="setMode('pickup')">Set Pick-up</button>
             <button id="modeDropoff" class="btn secondary small" onclick="setMode('dropoff')">Set Return</button>
           </div>
           <div id="map"></div>
@@ -157,7 +164,7 @@
           <div>
             <div class="kv"><span>Days</span><strong id="days">1</strong></div>
             <div class="kv"><span id="baseLabel">Base</span><strong id="base">$0.00</strong></div>
-            <div class="kv"><span>One‑time fees</span><strong id="oneTime">$4.99</strong></div>
+            <div class="kv"><span>One-time fees</span><strong id="oneTime">$4.99</strong></div>
             <div class="kv" id="under25Row" style="display:none"><span>Young driver</span><strong id="under25">$0.00</strong></div>
             <div class="kv" id="deliveryRow" style="display:none"><span id="deliveryLabel">Different return</span><strong id="delivery">$0.00</strong></div>
             <div class="kv"><span>Tax (4%)</span><strong id="tax">$0.00</strong></div>
@@ -165,6 +172,10 @@
           <div class="est">
             <div class="label">Estimated total</div>
             <div class="value" id="total">$0.00</div>
+
+            <!-- NUEVO: Mensaje de disponibilidad -->
+            <div id="availMsg" class="muted" style="margin-top:6px"></div>
+
             <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap">
               <button class="btn" onclick="reserve()">Request reservation</button>
               <button class="btn accent" onclick="payNow()">Book & Pay</button>
@@ -210,12 +221,12 @@
     <div class="grid">
       <section>
         <h3>Why TrailTrack?</h3>
-        <p>Only SUVs. Flexible pick‑up & return with live GPS. Clean vehicles, transparent pricing, and friendly support.</p>
+        <p>Only SUVs. Flexible pick-up & return with live GPS. Clean vehicles, transparent pricing, and friendly support.</p>
       </section>
       <section>
         <h3>Policy highlights</h3>
         <ul>
-          <li>21+ to rent (under‑25 fee may apply)</li>
+          <li>21+ to rent (under-25 fee may apply)</li>
           <li>Unlimited drivers from same household</li>
           <li>No smoking • No pets (service animals OK)</li>
         </ul>
@@ -306,7 +317,7 @@
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    const pickupMarker = L.marker(pickup).addTo(map).bindPopup('Pick‑up');
+    const pickupMarker = L.marker(pickup).addTo(map).bindPopup('Pick-up');
     const dropoffMarker = L.marker(dropoff).addTo(map).bindPopup('Return');
 
     map.on('click', (e)=>{
@@ -403,9 +414,42 @@
       deliveryEl.textContent = toCurrency(delivery);
       taxEl.textContent = toCurrency(tax);
       totalEl.textContent = toCurrency(total);
+
+      // Checar disponibilidad cada vez que cambia algo relevante
+      checkAvailability().catch(()=>{});
     }
 
-    function reserve(){
+    // ======= Worker base (normalizado, sin slash final) =======
+    const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev".replace(/\/+$/,'');
+    const WORKER_BASE  = CHECKOUT_API;
+
+    // ======= Availability helper (muestra mensaje) =======
+    async function checkAvailability(){
+      const msg = document.getElementById('availMsg');
+      msg.textContent = 'Checking availability…';
+      try{
+        const res = await fetch(WORKER_BASE + "/availability", {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ vehicleId: selected.id, startDate: startEl.value, endDate: endEl.value })
+        });
+        if(!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (data.available) {
+          msg.style.color = '#15803d'; // verde
+          msg.textContent = 'Disponible para esas fechas ✔';
+        } else {
+          msg.style.color = '#9f1239'; // rojo
+          msg.textContent = 'No disponible para esas fechas';
+        }
+      } catch(e){
+        msg.style.color = '#b45309'; // ámbar
+        msg.textContent = 'No se pudo verificar disponibilidad';
+        console.error('availability error:', e);
+      }
+    }
+
+    async function reserve(){
       const payload = {
         vehicleId: selected.id,
         startDate: startEl.value,
@@ -419,49 +463,112 @@
           delivery: deliveryEl.textContent,
           tax: taxEl.textContent,
           total: totalEl.textContent,
-        }
+        },
+        customerEmail: document.querySelector('#email')?.value || ""
       };
-      alert('Reservation request submitted!\n\n' + JSON.stringify(payload, null, 2));
-      console.log('Reservation request', payload);
+
+      // simple email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (payload.customerEmail && !emailRegex.test(payload.customerEmail)) {
+        alert("Please enter a valid email address.");
+        return;
+      }
+
+      // 1) Chequear disponibilidad (con manejo de errores)
+      let avail;
+      try {
+        const availRes = await fetch(WORKER_BASE + "/availability", {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify({ vehicleId: payload.vehicleId, startDate: payload.startDate, endDate: payload.endDate })
+        });
+        if (!availRes.ok) throw new Error("HTTP " + availRes.status);
+        avail = await availRes.json();
+      } catch (e) {
+        console.error("availability error:", e);
+        alert("No se pudo verificar disponibilidad. Inténtalo de nuevo.");
+        return;
+      }
+      if (!avail.available) {
+        alert("Lo sentimos, ese vehículo no está disponible para esas fechas.\nConflictos:\n" + JSON.stringify(avail.conflicts, null, 2));
+        return;
+      }
+
+      // 2) Enviar solicitud a tu email (crea soft-hold en el Worker)
+      try{
+        const r = await fetch(WORKER_BASE + "/reserve-email", {
+          method: "POST",
+          headers: { "Content-Type":"application/json" },
+          body: JSON.stringify(payload)
+        });
+        if(!r.ok){
+          const t = await r.text();
+          throw new Error(t);
+        }
+      } catch(e){
+        console.error("reserve-email error:", e);
+        alert("No se pudo enviar la solicitud de reserva.");
+        return;
+      }
+
+      // 3) (Opcional) Redirigir a Stripe Checkout
+      try{
+        const checkoutRes = await fetch(WORKER_BASE + "/", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            vehicleId: payload.vehicleId,
+            startDate: payload.startDate,
+            endDate: payload.endDate,
+            pickup: payload.pickup,
+            dropoff: payload.dropoff,
+            driverAge: payload.driverAge
+          })
+        });
+        const data = await checkoutRes.json();
+        if (data?.url) {
+          window.location.href = data.url; // Stripe Checkout
+        } else {
+          alert("No se pudo crear la sesión de pago.\n" + JSON.stringify(data, null, 2));
+        }
+      } catch(e){
+        console.error("checkout error:", e);
+        alert("No se pudo iniciar el pago.");
+      }
     }
     window.reserve = reserve;
 
     // Stripe Payment Link redirect
- 
-  const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev/"; // <— tu URL
+    async function payNow(){
+      try {
+        const payload = {
+          vehicleId: selected.id,
+          startDate: startEl.value,
+          endDate: endEl.value,
+          pickup,
+          dropoff,
+          driverAge: parseInt(ageEl.value,10)
+        };
 
-  async function payNow(){
-    try {
-      const payload = {
-        vehicleId: selected.id,
-        startDate: startEl.value,
-        endDate: endEl.value,
-        pickup,
-        dropoff,
-        driverAge: parseInt(ageEl.value,10)
-      };
+        const res = await fetch(CHECKOUT_API, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
 
-      const res = await fetch(CHECKOUT_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if(!res.ok){
-        const t = await res.text();
-        alert("Checkout error: " + t);
-        return;
+        if(!res.ok){
+          const t = await res.text();
+          alert("Checkout error: " + t);
+          return;
+        }
+        const { url } = await res.json();
+        window.location.href = url; // Stripe Checkout (total exacto)
+      } catch (e) {
+        console.error("payNow error:", e);
+        alert("No se pudo iniciar el pago:\n" + (e?.message || e));
       }
-      const { url } = await res.json();
-      window.location.href = url; // Stripe Checkout (total exacto)
-    } catch (e) {
-      console.error("payNow error:", e);
-      alert("No se pudo iniciar el pago:\n" + (e?.message || e));
     }
-  }
-  window.payNow = payNow;
-
-
+    window.payNow = payNow;
 
     // EmailJS contact form
     function sendContact(e){
@@ -495,6 +602,8 @@
     buildFleet();
     initForm();
     updateEstimate();
+    // primer chequeo
+    checkAvailability().catch(()=>{});
   </script>
 </body>
 </html>
