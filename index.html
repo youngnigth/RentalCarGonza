@@ -449,94 +449,74 @@
       }
     }
 
-    async function reserve(){
-      const payload = {
-        vehicleId: selected.id,
-        startDate: startEl.value,
-        endDate: endEl.value,
-        pickup, dropoff,
-        driverAge: parseInt(ageEl.value,10),
-        estimate: {
-          base: baseEl.textContent,
-          oneTime: oneTimeEl.textContent,
-          under25: under25El.textContent,
-          delivery: deliveryEl.textContent,
-          tax: taxEl.textContent,
-          total: totalEl.textContent,
-        },
-        customerEmail: document.querySelector('#email')?.value || ""
-      };
+ async function reserve(){
+  const emailInput = document.getElementById('email');
+  const customerEmail = (emailInput?.value || "").trim();
 
-      // simple email validation
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (payload.customerEmail && !emailRegex.test(payload.customerEmail)) {
-        alert("Please enter a valid email address.");
-        return;
-      }
+  // Requerimos email para poder enviar confirmación
+  if (!customerEmail) {
+    alert("Por favor escribe tu correo para enviarte la confirmación.");
+    emailInput?.focus();
+    return;
+  }
+  // Validación simple de formato
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(customerEmail)) {
+    alert("Por favor ingresa un correo válido.");
+    emailInput?.focus();
+    return;
+  }
 
-      // 1) Chequear disponibilidad (con manejo de errores)
-      let avail;
-      try {
-        const availRes = await fetch(WORKER_BASE + "/availability", {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ vehicleId: payload.vehicleId, startDate: payload.startDate, endDate: payload.endDate })
-        });
-        if (!availRes.ok) throw new Error("HTTP " + availRes.status);
-        avail = await availRes.json();
-      } catch (e) {
-        console.error("availability error:", e);
-        alert("No se pudo verificar disponibilidad. Inténtalo de nuevo.");
-        return;
-      }
-      if (!avail.available) {
-        alert("Lo sentimos, ese vehículo no está disponible para esas fechas.\nConflictos:\n" + JSON.stringify(avail.conflicts, null, 2));
-        return;
-      }
+  const payload = {
+    vehicleId: selected.id,
+    startDate: startEl.value,
+    endDate: endEl.value,
+    pickup, dropoff,
+    driverAge: parseInt(ageEl.value,10),
+    estimate: {
+      base: baseEl.textContent,
+      oneTime: oneTimeEl.textContent,
+      under25: under25El.textContent,
+      delivery: deliveryEl.textContent,
+      tax: taxEl.textContent,
+      total: totalEl.textContent,
+    },
+    customerEmail
+  };
 
-      // 2) Enviar solicitud a tu email (crea soft-hold en el Worker)
-      try{
-        const r = await fetch(WORKER_BASE + "/reserve-email", {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify(payload)
-        });
-        if(!r.ok){
-          const t = await r.text();
-          throw new Error(t);
-        }
-      } catch(e){
-        console.error("reserve-email error:", e);
-        alert("No se pudo enviar la solicitud de reserva.");
-        return;
-      }
+  // 1) Chequear disponibilidad
+  const availRes = await fetch(WORKER_BASE + "/availability", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify({
+      vehicleId: payload.vehicleId,
+      startDate: payload.startDate,
+      endDate: payload.endDate
+    })
+  });
+  const avail = await availRes.json();
+  if (!avail.available) {
+    alert("Lo sentimos, ese vehículo no está disponible para esas fechas.\nConflictos:\n" + JSON.stringify(avail.conflicts, null, 2));
+    return;
+  }
 
-      // 3) (Opcional) Redirigir a Stripe Checkout
-      try{
-        const checkoutRes = await fetch(WORKER_BASE + "/", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            vehicleId: payload.vehicleId,
-            startDate: payload.startDate,
-            endDate: payload.endDate,
-            pickup: payload.pickup,
-            dropoff: payload.dropoff,
-            driverAge: payload.driverAge
-          })
-        });
-        const data = await checkoutRes.json();
-        if (data?.url) {
-          window.location.href = data.url; // Stripe Checkout
-        } else {
-          alert("No se pudo crear la sesión de pago.\n" + JSON.stringify(data, null, 2));
-        }
-      } catch(e){
-        console.error("checkout error:", e);
-        alert("No se pudo iniciar el pago.");
-      }
-    }
-    window.reserve = reserve;
+  // 2) Enviar solicitud a tu email y confirmación al cliente
+  const r = await fetch(WORKER_BASE + "/reserve-email", {
+    method: "POST",
+    headers: { "Content-Type":"application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    alert("No se pudo enviar la reserva: " + t);
+    return;
+  }
+
+  alert("¡Reserva enviada! Te enviaremos un correo y nos pondremos en contacto pronto.");
+}
+window.reserve = reserve;
+
+
 
     // Stripe Payment Link redirect
     async function payNow(){
