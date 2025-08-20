@@ -243,16 +243,13 @@
     /* =========================
        CONFIG — EDIT THESE
        ========================= */
-    const BRAND = {
-      name: "TrailTrack Rentals",
-      // Replace with your hosted logo file or keep assets/logo.svg
-      logoUrl: "assets/logo.svg",
-
-      // EmailJS keys (create free acct at emailjs.com)
-      EMAILJS_PUBLIC_KEY: "Hkx4h1F3mYXQSZLnn",
-      EMAILJS_SERVICE_ID: "service_jt9vrzm",
-      EMAILJS_TEMPLATE_ID: "template_xzn9ydm"
-    };
+  const BRAND = {
+  name: "TrailTrack Rentals",
+  logoUrl: "assets/logo.svg",
+  EMAILJS_PUBLIC_KEY: "Hkx4h1F3mYXQSZLnn",
+  EMAILJS_SERVICE_ID: "service_jt9vrzm",
+  EMAILJS_TEMPLATE_ID: "template_tqq8a0u"   // <— antes era template_xzn9ydm
+};
 
     // Apply logo and title from config
     document.title = BRAND.name + " — SUV Only";
@@ -273,14 +270,71 @@
       const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(a));
     }
     function daysBetween(start, end){ const s=new Date(start), e=new Date(end); const ms=e - s; return Math.max(1, Math.ceil(ms / 86400000)); }
+    // === Local date helpers (replace ISO-based versions) ===
+function ymdLocal(d=new Date()){
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function today(){ return ymdLocal(new Date()); }
+function tomorrow(){
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return ymdLocal(d);
+}
+
+    
     function today(){ const d=new Date(); return d.toISOString().slice(0,10); }
     function tomorrow(){ const d=new Date(Date.now()+86400000); return d.toISOString().slice(0,10); }
+
+  // === Soft persistence in localStorage ===
+const LS_KEY = 'trailtrack_state_v1';
+function saveState(){
+  try {
+    const state = {
+      vehicleId: selected?.id,
+      start: startEl.value,
+      end: endEl.value,
+      age: parseInt(ageEl.value,10),
+      pickup, dropoff
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(state));
+  } catch {}
+}
+function loadState(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if(!raw) return;
+    const s = JSON.parse(raw);
+    if (s.start) startEl.value = s.start;
+    if (s.end)   endEl.value   = s.end;
+    if (s.age)   { ageEl.value = s.age; ageLabel.textContent = s.age + ' years'; }
+    if (s.vehicleId) {
+      const found = FLEET.find(v=>v.id===s.vehicleId);
+      if (found) { selected = found; vehicleSel.value = found.id; }
+    }
+    if (Array.isArray(s.pickup) && s.pickup.length===2) { pickup = s.pickup; }
+    if (Array.isArray(s.dropoff) && s.dropoff.length===2){ dropoff = s.dropoff; }
+  } catch {}
+}
+
+
 
     // --- State ---
     let mode = 'pickup'; // or 'dropoff'
     let selected = FLEET[0];
     let pickup = [36.1627, -86.7816];
     let dropoff = [36.1745, -86.7679];
+
+    // Availability/UI state
+let availState = { status: 'unknown', available: false };
+
+function toggleCTAs(canBook){
+  // Solo afecta los dos botones dentro del bloque de totales (.est)
+  document.querySelectorAll('.est .btn').forEach(b => { b.disabled = !canBook; });
+}
+
 
     // --- DOM refs ---
     const fleetEl = document.getElementById('fleet');
@@ -325,6 +379,7 @@
       if(mode==='pickup'){ pickup = p; pickupMarker.setLatLng(p); setLocFields(); }
       else { dropoff = p; dropoffMarker.setLatLng(p); setLocFields(); }
       updateEstimate();
+      saveState();
     });
 
     function setMode(m){
@@ -342,6 +397,7 @@
         map.setView(p, 13);
         setLocFields();
         updateEstimate();
+        saveState();
       }, (err)=> alert(err.message), { enableHighAccuracy:true });
     }
     window.geo = geo;
@@ -372,6 +428,7 @@
           selected = FLEET.find(v=>v.id===id);
           vehicleSel.value = selected.id;
           updateEstimate();
+          saveState();
         });
       });
 
@@ -379,19 +436,27 @@
         const id = vehicleSel.value; selected = FLEET.find(v=>v.id===id);
         document.querySelectorAll('.vehicle').forEach(c=>c.classList.toggle('active', c.getAttribute('data-id')===id));
         updateEstimate();
+        saveState();
       });
     }
 
-    function initForm(){
-      startEl.value = today();
-      endEl.value = tomorrow();
-      endEl.min = startEl.value;
-      startEl.addEventListener('change', ()=>{ endEl.min = startEl.value; if(endEl.value < startEl.value){ endEl.value = startEl.value } updateEstimate(); });
-      endEl.addEventListener('change', updateEstimate);
-      ageEl.addEventListener('input', ()=>{ ageLabel.textContent = ageEl.value + ' years'; updateEstimate(); });
-      setLocFields();
-      setMode('pickup');
-    }
+function initForm(){
+  if (!startEl.value) startEl.value = today();
+  if (!endEl.value)   endEl.value   = tomorrow();
+
+  endEl.min = startEl.value;
+  startEl.addEventListener('change', ()=>{
+    endEl.min = startEl.value;
+    if(endEl.value < startEl.value){ endEl.value = startEl.value }
+    updateEstimate(); saveState();
+  });
+  endEl.addEventListener('change', ()=>{ updateEstimate(); saveState(); });
+  ageEl.addEventListener('input', ()=>{ ageLabel.textContent = ageEl.value + ' years'; updateEstimate(); saveState(); });
+
+  setLocFields();
+  setMode('pickup');
+}
+
 
     function updateEstimate(){
       const days = daysBetween(startEl.value, endEl.value);
@@ -423,167 +488,285 @@
     const CHECKOUT_API = "https://trailtrack-checkout.youngdesert01.workers.dev".replace(/\/+$/,'');
     const WORKER_BASE  = CHECKOUT_API;
 
-    // ======= Availability helper (muestra mensaje) =======
-    async function checkAvailability(){
-      const msg = document.getElementById('availMsg');
-      msg.textContent = 'Checking availability…';
-      try{
-        const res = await fetch(WORKER_BASE + "/availability", {
-          method: "POST",
-          headers: { "Content-Type":"application/json" },
-          body: JSON.stringify({ vehicleId: selected.id, startDate: startEl.value, endDate: endEl.value })
-        });
-        if(!res.ok) throw new Error("HTTP " + res.status);
-        const data = await res.json();
-        if (data.available) {
-          msg.style.color = '#15803d'; // verde
-          msg.textContent = 'Disponible para esas fechas ✔';
-        } else {
-          msg.style.color = '#9f1239'; // rojo
-          msg.textContent = 'No disponible para esas fechas';
-        }
-      } catch(e){
-        msg.style.color = '#b45309'; // ámbar
-        msg.textContent = 'No se pudo verificar disponibilidad';
-        console.error('availability error:', e);
-      }
-    }
 
- async function reserve(){
+    // === Debounce for availability ===
+let availTimer = null;
+function scheduleAvailability(){
+  clearTimeout(availTimer);
+  availTimer = setTimeout(()=>checkAvailability().catch(()=>{}), 300);
+}
+
+
+    // ======= Availability helper (muestra mensaje) =======
+async function checkAvailability(){
+  const msg = document.getElementById('availMsg');
+  availState.status = 'loading';
+  toggleCTAs(false);
+  msg.textContent = 'Checking availability…';
+  msg.style.color = ''; // reset
+
+  try{
+    const res = await fetch(WORKER_BASE + "/availability", {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({ vehicleId: selected.id, startDate: startEl.value, endDate: endEl.value })
+    });
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    availState.status = 'ok';
+    availState.available = !!data.available;
+
+    if (data.available) {
+      msg.style.color = '#15803d'; // verde
+      msg.textContent = 'Disponible para esas fechas ✔';
+      toggleCTAs(true);
+    } else {
+      msg.style.color = '#9f1239'; // rojo
+      msg.textContent = 'No disponible para esas fechas';
+      toggleCTAs(false);
+    }
+  } catch(e){
+    availState.status = 'error';
+    availState.available = false;
+    msg.style.color = '#b45309'; // ámbar
+    msg.textContent = 'No se pudo verificar disponibilidad';
+    toggleCTAs(false);
+    console.error('availability error:', e);
+  }
+}
+
+// ===== Loading helpers (solo afectan los botones dentro de .est) =====
+function setButtonLoading(btn, loading, loadingText="Working…"){
+  if (!btn) return;
+  if (loading){
+    btn.dataset._label = btn.textContent;
+    btn.textContent = loadingText;
+    btn.disabled = true;
+  } else {
+    if (btn.dataset._label) btn.textContent = btn.dataset._label;
+    btn.disabled = false;
+  }
+}
+function setCTALoading(loading, which){ // which: 'reserve' | 'pay'
+  const [reserveBtn, payBtn] = document.querySelectorAll('.est .btn');
+  if (which === 'reserve') {
+    setButtonLoading(reserveBtn, loading, "Sending…");
+    payBtn && (payBtn.disabled = loading || !availState.available);
+  } else if (which === 'pay') {
+    setButtonLoading(payBtn, loading, "Redirecting…");
+    reserveBtn && (reserveBtn.disabled = loading);
+  } else {
+    [reserveBtn, payBtn].forEach(b=>b && (b.disabled = loading));
+  }
+}
+
+// ===== Toast (creado dinámicamente) =====
+function showToast(message, type="info"){ // type: info | success | error
+  let el = document.getElementById('tt_toast');
+  if (!el){
+    el = document.createElement('div');
+    el.id = 'tt_toast';
+    el.style.position='fixed';
+    el.style.right='16px'; el.style.bottom='16px';
+    el.style.maxWidth='360px';
+    el.style.padding='12px 14px';
+    el.style.borderRadius='12px';
+    el.style.boxShadow='0 8px 28px rgba(2,6,23,.15)';
+    el.style.zIndex=9999;
+    el.style.font='14px system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, sans-serif';
+    el.style.whiteSpace='pre-line';
+    document.body.appendChild(el);
+  }
+  const colors = {
+    info:   ['#0ea5e9', '#e0f2fe', '#075985'],
+    success:['#16a34a', '#dcfce7', '#065f46'],
+    error:  ['#dc2626', '#fee2e2', '#7f1d1d']
+  }[type] || ['#334155','#f1f5f9','#0f172a'];
+  el.style.border = `1px solid ${colors[0]}`;
+  el.style.background = colors[1];
+  el.style.color = colors[2];
+  el.textContent = message;
+  el.style.display='block';
+  clearTimeout(el._t);
+  el._t = setTimeout(()=>{ el.style.display='none'; }, 6000);
+}
+
+
+async function reserve(){
+  // Bloqueo por disponibilidad conocida (UX)
+  if (availState.status === 'ok' && !availState.available) {
+    alert("Ese vehículo no está disponible para esas fechas.");
+    return;
+  }
+
   const emailInput = document.getElementById('email');
   const customerEmail = (emailInput?.value || "").trim();
 
-  // Requerimos email para poder enviar confirmación
-  if (!customerEmail) {
-    alert("Por favor escribe tu correo para enviarte la confirmación.");
-    emailInput?.focus();
-    return;
-  }
-  // Validación simple de formato
+  if (!customerEmail) { alert("Por favor escribe tu correo para enviarte la confirmación."); emailInput?.focus(); return; }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(customerEmail)) {
-    alert("Por favor ingresa un correo válido.");
-    emailInput?.focus();
-    return;
+  if (!emailRegex.test(customerEmail)) { alert("Por favor ingresa un correo válido."); emailInput?.focus(); return; }
+
+  // Selecciona los dos botones principales
+  const [reserveBtn] = document.querySelectorAll('.est .btn');
+  setCTALoading(true, 'reserve');
+
+  try {
+    // 1) Chequear disponibilidad (servidor manda)
+    const availRes = await fetch(WORKER_BASE + "/availability", {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({ vehicleId: selected.id, startDate: startEl.value, endDate: endEl.value })
+    });
+    const avail = await availRes.json();
+    if (!avail.available) {
+      showToast("Fechas no disponibles. Intenta otras fechas/vehículo.", "error");
+      return;
+    }
+
+    // 2) Payload para /reserve-email
+    const payload = {
+      vehicleId: selected.id,
+      startDate: startEl.value,
+      endDate: endEl.value,
+      pickup, dropoff,
+      driverAge: parseInt(ageEl.value,10),
+      estimate: {
+        base: baseEl.textContent,
+        oneTime: oneTimeEl.textContent,
+        under25: under25El.textContent,
+        delivery: deliveryEl.textContent,
+        tax: taxEl.textContent,
+        total: totalEl.textContent,
+      },
+      customerEmail
+    };
+
+    const r = await fetch(WORKER_BASE + "/reserve-email", {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      showToast("No se pudo enviar la reserva:\n" + t, "error");
+      return;
+    }
+
+    const data = await r.json();
+    const holdTxt = data?.hold_expires_at ? `Tu hold expira: ${new Date(data.hold_expires_at).toLocaleString()}` : "";
+    showToast(`¡Reserva enviada!\nTe escribiremos al correo indicado.\n${holdTxt}`, "success");
+  } catch (e) {
+    console.error("reserve error:", e);
+    showToast("Error inesperado al enviar la reserva.", "error");
+  } finally {
+    setCTALoading(false, 'reserve');
   }
-
-  const payload = {
-    vehicleId: selected.id,
-    startDate: startEl.value,
-    endDate: endEl.value,
-    pickup, dropoff,
-    driverAge: parseInt(ageEl.value,10),
-    estimate: {
-      base: baseEl.textContent,
-      oneTime: oneTimeEl.textContent,
-      under25: under25El.textContent,
-      delivery: deliveryEl.textContent,
-      tax: taxEl.textContent,
-      total: totalEl.textContent,
-    },
-    customerEmail
-  };
-
-  // 1) Chequear disponibilidad
-  const availRes = await fetch(WORKER_BASE + "/availability", {
-    method: "POST",
-    headers: { "Content-Type":"application/json" },
-    body: JSON.stringify({
-      vehicleId: payload.vehicleId,
-      startDate: payload.startDate,
-      endDate: payload.endDate
-    })
-  });
-  const avail = await availRes.json();
-  if (!avail.available) {
-    alert("Lo sentimos, ese vehículo no está disponible para esas fechas.\nConflictos:\n" + JSON.stringify(avail.conflicts, null, 2));
-    return;
-  }
-
-  // 2) Enviar solicitud a tu email y confirmación al cliente
-  const r = await fetch(WORKER_BASE + "/reserve-email", {
-    method: "POST",
-    headers: { "Content-Type":"application/json" },
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) {
-    const t = await r.text();
-    alert("No se pudo enviar la reserva: " + t);
-    return;
-  }
-
-  alert("¡Reserva enviada! Te enviaremos un correo y nos pondremos en contacto pronto.");
 }
 window.reserve = reserve;
 
 
-
     // Stripe Payment Link redirect
-    async function payNow(){
-      try {
-        const payload = {
-          vehicleId: selected.id,
-          startDate: startEl.value,
-          endDate: endEl.value,
-          pickup,
-          dropoff,
-          driverAge: parseInt(ageEl.value,10)
-        };
+   async function payNow(){
+  // Bloqueo por disponibilidad conocida (UX)
+  if (availState.status === 'ok' && !availState.available) {
+    alert("Ese vehículo no está disponible para esas fechas.");
+    return;
+  }
 
-        const res = await fetch(CHECKOUT_API, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
+  setCTALoading(true, 'pay');
+  try {
+    const payload = {
+      vehicleId: selected.id,
+      startDate: startEl.value,
+      endDate: endEl.value,
+      pickup,
+      dropoff,
+      driverAge: parseInt(ageEl.value,10)
+    };
 
-        if(!res.ok){
-          const t = await res.text();
-          alert("Checkout error: " + t);
-          return;
-        }
-        const { url } = await res.json();
-        window.location.href = url; // Stripe Checkout (total exacto)
-      } catch (e) {
-        console.error("payNow error:", e);
-        alert("No se pudo iniciar el pago:\n" + (e?.message || e));
-      }
+    const res = await fetch(CHECKOUT_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if(!res.ok){
+      const t = await res.text();
+      showToast("Checkout error:\n" + t, "error");
+      return;
     }
-    window.payNow = payNow;
+    const { url } = await res.json();
+    window.location.href = url; // Stripe Checkout
+  } catch (e) {
+    console.error("payNow error:", e);
+    showToast("No se pudo iniciar el pago.\n" + (e?.message || e), "error");
+  } finally {
+    setCTALoading(false, 'pay');
+  }
+}
+window.payNow = payNow;
 
     // EmailJS contact form
-    function sendContact(e){
-      e.preventDefault();
-      const ok = BRAND.EMAILJS_PUBLIC_KEY && BRAND.EMAILJS_SERVICE_ID && BRAND.EMAILJS_TEMPLATE_ID;
-      const success = document.getElementById('contactSuccess');
-      const error = document.getElementById('contactError');
-      success.style.display = 'none'; error.style.display = 'none';
+// Añade un honeypot virtual (si quieres físico, agrega un <input name="company" style="display:none"> en el form)
+function isBot(){ return false; } // placeholder si no quieres tocar HTML
 
-      if(!ok){
-        error.textContent = "EmailJS keys not set. Edit the CONFIG at the bottom of index.html.";
-        error.style.display = 'block';
-        return;
-      }
-      const name = document.getElementById('cname').value;
-      const email = document.getElementById('cemail').value;
-      const message = document.getElementById('cmsg').value;
+function sendContact(e){
+  e.preventDefault();
+  const ok = BRAND.EMAILJS_PUBLIC_KEY && BRAND.EMAILJS_SERVICE_ID && BRAND.EMAILJS_TEMPLATE_ID;
+  const success = document.getElementById('contactSuccess');
+  const error = document.getElementById('contactError');
+  success.style.display = 'none'; error.style.display = 'none';
+  success.setAttribute('aria-live','polite'); error.setAttribute('aria-live','assertive');
 
-      emailjs.init({ publicKey: BRAND.EMAILJS_PUBLIC_KEY });
-      emailjs.send(BRAND.EMAILJS_SERVICE_ID, BRAND.EMAILJS_TEMPLATE_ID, {
-        from_name: name,
-        reply_to: email,
-        message: message
-      })
-      .then(() => { success.style.display = 'block'; (document.getElementById('contactForm')).reset(); })
-      .catch(() => { error.style.display = 'block'; });
-    }
-    window.sendContact = sendContact;
+  if(!ok){
+    error.textContent = "EmailJS keys not set. Edit the CONFIG at the bottom of index.html.";
+    error.style.display = 'block';
+    return;
+  }
+  if (isBot()){ return; } // silencioso
+
+  const name = document.getElementById('cname').value.trim();
+  const email = document.getElementById('cemail').value.trim();
+  const message = document.getElementById('cmsg').value.trim();
+
+  emailjs.init({ publicKey: BRAND.EMAILJS_PUBLIC_KEY });
+  emailjs.send(BRAND.EMAILJS_SERVICE_ID, BRAND.EMAILJS_TEMPLATE_ID, {
+    from_name: name,
+    reply_to: email,
+    message: message
+  })
+  .then(() => {
+    success.textContent = "Thanks! Your message was sent.";
+    success.style.display = 'block';
+    (document.getElementById('contactForm')).reset();
+  })
+  .catch(() => {
+    error.textContent = "Sorry, something went wrong sending your message.";
+    error.style.display = 'block';
+  });
+}
+window.sendContact = sendContact;
+
+
+    // === Post-Stripe confirmation (backend usa ?status=success/cancel) ===
+(function showStripeStatus(){
+  const q = new URLSearchParams(location.search);
+  const status = q.get('status');
+  if (status === 'success') {
+    showToast("✅ Pago completado. Te enviaremos un correo con los detalles.", "success");
+  } else if (status === 'cancel') {
+    showToast("Pago cancelado. Tu carrito sigue listo si quieres intentarlo de nuevo.", "info");
+  }
+})();
+
 
     // Init
     buildFleet();
+    loadState(); 
     initForm();
     updateEstimate();
     // primer chequeo
-    checkAvailability().catch(()=>{});
+    scheduleAvailability();
   </script>
 </body>
 </html>
